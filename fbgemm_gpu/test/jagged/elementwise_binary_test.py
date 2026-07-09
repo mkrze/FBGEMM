@@ -26,17 +26,17 @@ from .common import (
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
         cpu_and_maybe_gpu,
-        gpu_memory_lt_gb,
-        gpu_unavailable,
         gradcheck,
         optests,
     )
 else:
     from fbgemm_gpu.test.test_utils import (
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
         cpu_and_maybe_gpu,
-        gpu_memory_lt_gb,
-        gpu_unavailable,
         gradcheck,
         optests,
     )
@@ -159,7 +159,7 @@ class ElementwiseBinaryTest(unittest.TestCase):
             device,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.integers(0, 8),
@@ -278,8 +278,8 @@ class ElementwiseBinaryTest(unittest.TestCase):
 
         assert output.size() == output_ref.size()
 
-    @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*gpu_memory_lt_gb(32))
+    @unittest.skipIf(*accelerator_unavailable)
+    @unittest.skipIf(*accelerator_memory_lt_gb(32))
     @optests.dontGenerateOpCheckTests(
         "the 32-GiB grid-overflow regression is covered by the direct GPU test"
     )

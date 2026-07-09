@@ -19,10 +19,14 @@ from hypothesis import given, settings, Verbosity
 
 from .common import additional_decorators, open_source
 
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
-        gpu_available,
+        accelerator_available,
+        current_accelerator,
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
@@ -30,7 +34,8 @@ if open_source:
     )
 else:
     from fbgemm_gpu.test.test_utils import (
-        gpu_available,
+        accelerator_available,
+        current_accelerator,
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
@@ -97,18 +102,20 @@ class ExpandIntoJaggedPermuteTest(unittest.TestCase):
         )
         output_permute_ref_tensor = torch.tensor(output_permute_ref)
 
-        # assert cpu and gpu ops
+        # Assert CPU and current-accelerator results.
         torch.testing.assert_close(output_permute_cpu, output_permute_ref_tensor)
-        if gpu_available:
-            # gpu op
-            output_permute_gpu = torch.ops.fbgemm.expand_into_jagged_permute(
-                permute_tensor.cuda(),
-                offsets_1d_tensor.cuda(),
-                permuted_offsets_1d_tensor.cuda(),
-                offsets_1d[-1],
+        if accelerator_available:
+            device = current_accelerator()
+            output_permute_accelerator = (
+                torch.ops.fbgemm.expand_into_jagged_permute(
+                    permute_tensor.to(device),
+                    offsets_1d_tensor.to(device),
+                    permuted_offsets_1d_tensor.to(device),
+                    offsets_1d[-1],
+                )
             )
             torch.testing.assert_close(
-                output_permute_gpu.cpu(), output_permute_ref_tensor
+                output_permute_accelerator.cpu(), output_permute_ref_tensor
             )
 
     @unittest.skipIf(*gpu_unavailable)

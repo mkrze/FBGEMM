@@ -16,6 +16,7 @@ import unittest
 from itertools import accumulate
 
 import fbgemm_gpu  # noqa E402
+import fbgemm_xpu  # noqa: F401, E402  -- registers fbgemm XPU operator impls
 import hypothesis.strategies as st
 import numpy as np
 import torch
@@ -28,9 +29,19 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, use_cpu_strategy
+    from test_utils import (
+        accelerator_unavailable,
+        current_accelerator,
+        gpu_unavailable,
+        use_cpu_strategy,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, use_cpu_strategy
+    from fbgemm_gpu.test.test_utils import (
+        accelerator_unavailable,
+        current_accelerator,
+        gpu_unavailable,
+        use_cpu_strategy,
+    )
 
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
@@ -611,6 +622,24 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                     index_remappings_array_offsets,
                 )
             torch.testing.assert_close(dense_indices.clone().fill_(-1), dense_indices_)
+
+    @unittest.skipIf(*accelerator_unavailable)
+    @given(
+        B=st.integers(min_value=1, max_value=128),
+        T=st.integers(min_value=1, max_value=128),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_get_infos_metadata(self, B: int, T: int) -> None:
+        # get_infos_metadata is device-agnostic integer bit-math; the tensor
+        # argument is unused and only anchors dispatch. Verify the accelerator
+        # key (XPU/CUDA) returns identical (info_B_num_bits, info_B_mask) as the
+        # CPU impl.
+        device = current_accelerator()
+        acc_res = torch.ops.fbgemm.get_infos_metadata(
+            torch.empty(0, device=device), B, T
+        )
+        cpu_res = torch.ops.fbgemm.get_infos_metadata(torch.empty(0), B, T)
+        self.assertEqual(tuple(acc_res), tuple(cpu_res))
 
     def test_pickle(self) -> None:
         # pyre-ignore[16]

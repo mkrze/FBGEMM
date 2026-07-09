@@ -23,7 +23,7 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable
+    from test_utils import accelerator_available, current_accelerator, gpu_available, gpu_memory_lt_gb, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
@@ -31,6 +31,11 @@ else:
         gpu_memory_lt_gb,
         gpu_unavailable,
     )
+
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
+ACCELERATOR = current_accelerator()
 
 
 class MiscOpsTest(unittest.TestCase):
@@ -56,10 +61,15 @@ class MiscOpsTest(unittest.TestCase):
         inverse_permute_cpu = torch.ops.fbgemm.invert_permute(permute)
         torch.testing.assert_close(inverse_permute_cpu, inverse_permute_ref)
 
-        if gpu_available:
-            inverse_permute_gpu = torch.ops.fbgemm.invert_permute(permute.cuda())
-            torch.testing.assert_close(inverse_permute_gpu.cpu(), inverse_permute_cpu)
+        if accelerator_available:
+            inverse_permute_accelerator = torch.ops.fbgemm.invert_permute(
+                permute.to(ACCELERATOR)
+            )
+            torch.testing.assert_close(
+                inverse_permute_accelerator.cpu(), inverse_permute_cpu
+            )
 
+    @unittest.skip("Operator not implemented on XPU")
     @given(
         N=st.integers(min_value=1, max_value=20),
         offsets_type=st.sampled_from([torch.int32, torch.int64]),
@@ -89,6 +99,7 @@ class MiscOpsTest(unittest.TestCase):
             range_ref = range_ref.to(range_gpu.dtype)
             torch.testing.assert_close(range_gpu.cpu(), range_ref, rtol=0, atol=0)
 
+    @unittest.skip("Operator not implemented on XPU")
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -159,6 +170,7 @@ class MiscOpsTest(unittest.TestCase):
             if bucketize_pos:
                 torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
 
+    @unittest.skip("Operator not implemented on XPU")
     def test_segment_sum_csr(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
             2,
@@ -180,6 +192,7 @@ class MiscOpsTest(unittest.TestCase):
                 segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), rtol=0, atol=0
             )
 
+    @unittest.skip("Operator not implemented on XPU")
     def test_segment_sum_csr_empty_input(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
             0,
@@ -253,6 +266,7 @@ class MiscOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output_gpu.cpu(), output_cpu)
 
+    @unittest.skip("Operator not implemented on XPU")
     @given(
         batch_size=st.just(2),
         m=st.just(3),
@@ -289,6 +303,7 @@ class MiscOpsTest(unittest.TestCase):
         C = torch.ops.fbgemm.permute102_baddbmm_permute102(bias, A, B)
         torch.testing.assert_close(C.cpu(), C_ref.cpu())
 
+    @unittest.skip("Operator not implemented on XPU")
     @given(
         T=st.integers(1, 5),
         B=st.integers(1, 5),
@@ -320,6 +335,7 @@ class MiscOpsTest(unittest.TestCase):
         all_indices_deduped_ref = torch.as_tensor(all_indices[:, :, :L])
         torch.testing.assert_close(all_indices_deduped, all_indices_deduped_ref)
 
+    @unittest.skip("Operator not implemented on XPU")
     def test_lengths_range(self) -> None:
         # When 'output_shape' is None, the function will return a tensor with dynamic shape.
         with self.assertRaisesRegex(

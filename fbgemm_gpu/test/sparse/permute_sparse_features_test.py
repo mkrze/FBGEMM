@@ -19,16 +19,18 @@ from hypothesis import given, settings
 
 from .common import extend_test_class, open_source, permute_indices_ref_
 
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, on_oss_clang, running_in_oss
+    from test_utils import accelerator_unavailable, gpu_available, on_oss_clang
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
+        accelerator_unavailable,
         gpu_available,
-        gpu_unavailable,
         on_oss_clang,
-        running_in_oss,
     )
 
 
@@ -67,6 +69,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
 
         return permuted_lengths, permuted_indices, permuted_weights
 
+    @unittest.skip("Operator not implemented on XPU")
     @unittest.skipIf(*on_oss_clang)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -134,6 +137,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
             else:
                 assert permuted_weights_gpu is None
 
+    @unittest.skip("Operator not implemented on XPU")
     @unittest.skipIf(*on_oss_clang)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -203,8 +207,7 @@ class PermuteSparseFeaturesTest(unittest.TestCase):
 
 
 class Permute1DSparseFeaturesTest(unittest.TestCase):
-    @unittest.skipIf(*running_in_oss)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
@@ -335,7 +338,7 @@ class Permute1DSparseFeaturesTest(unittest.TestCase):
 
 
 class Permute2DSparseFeaturesTest(unittest.TestCase):
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     def test_permute_2D_sparse_data(self) -> None:
         lengths = torch.tensor(
             [[0, 0, 1], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],

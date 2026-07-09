@@ -9,8 +9,10 @@
 
 # pyre-ignore-all-errors[56]
 
+import os
 import random
 import unittest
+from unittest import mock
 
 import hypothesis.strategies as st
 import torch
@@ -20,15 +22,31 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
-else:
-    import fbgemm_gpu.sparse_ops  # noqa: F401, E402  (registers FakeTensor/meta impls)
-    from fbgemm_gpu.test.test_utils import (
-        gpu_available,
+    from test_utils import (
+        accelerator_available,
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
+        current_accelerator,
         gpu_memory_lt_gb,
         gpu_unavailable,
         optests,
     )
+else:
+    import fbgemm_gpu.sparse_ops  # noqa: F401, E402  (registers FakeTensor/meta impls)
+    from fbgemm_gpu.test.test_utils import (
+        accelerator_available,
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
+        current_accelerator,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+    )
+
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
+ACCELERATOR = current_accelerator()
 
 
 def unbucketize_indices_value(
@@ -79,7 +97,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
         bucketize_pos=st.booleans(),
@@ -247,11 +265,11 @@ class BlockBucketizeTest(unittest.TestCase):
                 new_pos_gpu,
                 unbucketize_permute_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 bucketize_pos,
                 sequence,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 None,
                 keep_orig_idx=keep_orig_idx,
@@ -277,7 +295,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
         bucketize_pos=st.booleans(),
@@ -450,16 +468,16 @@ class BlockBucketizeTest(unittest.TestCase):
             _,
             _,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda() if not use_cpu else lengths,
-            indices.cuda() if not use_cpu else indices,
+            lengths.to(ACCELERATOR) if not use_cpu else lengths,
+            indices.to(ACCELERATOR) if not use_cpu else indices,
             bucketize_pos,
             sequence,
-            block_sizes.cuda() if not use_cpu else block_sizes,
+            block_sizes.to(ACCELERATOR) if not use_cpu else block_sizes,
             my_size,
             None,
             keep_orig_idx=keep_orig_idx,
             keep_orig_idx_per_feature=(
-                keep_orig_idx_per_feature.cuda()
+                keep_orig_idx_per_feature.to(ACCELERATOR)
                 if not use_cpu
                 else keep_orig_idx_per_feature
             ),
@@ -473,7 +491,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
@@ -576,20 +594,20 @@ class BlockBucketizeTest(unittest.TestCase):
             new_pos,
             unbucketize_permute,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda() if not use_cpu else lengths,
-            indices.cuda() if not use_cpu else indices,
+            lengths.to(ACCELERATOR) if not use_cpu else lengths,
+            indices.to(ACCELERATOR) if not use_cpu else indices,
             None,
             sequence,
-            block_sizes.cuda() if not use_cpu else block_sizes,
+            block_sizes.to(ACCELERATOR) if not use_cpu else block_sizes,
             my_size,
             block_bucketize_pos=(
-                ([t.cuda() for t in block_bucketize_pos])
+                ([t.to(ACCELERATOR) for t in block_bucketize_pos])
                 if not use_cpu
                 else block_bucketize_pos
             ),
             keep_orig_idx=keep_orig_idx,
             total_num_blocks=(
-                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+                total_num_blocks.to(ACCELERATOR) if not use_cpu else total_num_blocks
             ),
         )
 
@@ -608,7 +626,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
@@ -698,20 +716,20 @@ class BlockBucketizeTest(unittest.TestCase):
             new_pos,
             unbucketize_permute,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda() if not use_cpu else lengths,
-            indices.cuda() if not use_cpu else indices,
+            lengths.to(ACCELERATOR) if not use_cpu else lengths,
+            indices.to(ACCELERATOR) if not use_cpu else indices,
             None,
             sequence,
-            block_sizes.cuda() if not use_cpu else block_sizes,
+            block_sizes.to(ACCELERATOR) if not use_cpu else block_sizes,
             my_size,
             block_bucketize_pos=(
-                ([t.cuda() for t in block_bucketize_pos])
+                ([t.to(ACCELERATOR) for t in block_bucketize_pos])
                 if not use_cpu
                 else block_bucketize_pos
             ),
             keep_orig_idx=keep_orig_idx,
             total_num_blocks=(
-                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+                total_num_blocks.to(ACCELERATOR) if not use_cpu else total_num_blocks
             ),
         )
 
@@ -731,7 +749,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
@@ -815,15 +833,15 @@ class BlockBucketizeTest(unittest.TestCase):
             new_pos,
             unbucketize_permute,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda() if not use_cpu else lengths,
-            indices.cuda() if not use_cpu else indices,
+            lengths.to(ACCELERATOR) if not use_cpu else lengths,
+            indices.to(ACCELERATOR) if not use_cpu else indices,
             None,
             sequence,
-            block_sizes.cuda() if not use_cpu else block_sizes,
+            block_sizes.to(ACCELERATOR) if not use_cpu else block_sizes,
             my_size,
             keep_orig_idx=keep_orig_idx,
             total_num_blocks=(
-                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+                total_num_blocks.to(ACCELERATOR) if not use_cpu else total_num_blocks
             ),
         )
 
@@ -842,7 +860,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
     @given(
         long_indices=st.booleans(),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
     )
@@ -925,15 +943,15 @@ class BlockBucketizeTest(unittest.TestCase):
             new_pos,
             unbucketize_permute,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda() if not use_cpu else lengths,
-            indices.cuda() if not use_cpu else indices,
+            lengths.to(ACCELERATOR) if not use_cpu else lengths,
+            indices.to(ACCELERATOR) if not use_cpu else indices,
             None,
             sequence,
-            block_sizes.cuda() if not use_cpu else block_sizes,
+            block_sizes.to(ACCELERATOR) if not use_cpu else block_sizes,
             my_size,
             keep_orig_idx=keep_orig_idx,
             total_num_blocks=(
-                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+                total_num_blocks.to(ACCELERATOR) if not use_cpu else total_num_blocks
             ),
         )
 
@@ -1059,7 +1077,7 @@ class BlockBucketizeTest(unittest.TestCase):
             )
             torch.testing.assert_close(unbucketized_indices, indices, rtol=0, atol=0)
 
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -1067,14 +1085,14 @@ class BlockBucketizeTest(unittest.TestCase):
                 new_pos_gpu,
                 unbucketize_permute_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 bucketize_pos,
                 sequence,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 # pyre-fixme[16]: `Optional` has no attribute `cuda`.
-                weights.cuda() if has_weight else None,
+                weights.to(ACCELERATOR) if has_weight else None,
             )
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
@@ -1167,7 +1185,7 @@ class BlockBucketizeTest(unittest.TestCase):
         torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
         torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
 
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -1176,11 +1194,11 @@ class BlockBucketizeTest(unittest.TestCase):
                 _,
                 bucket_mapping_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 False,
                 True,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 None,
                 return_bucket_mapping=True,
@@ -1258,7 +1276,7 @@ class BlockBucketizeTest(unittest.TestCase):
         torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
         torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
 
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -1267,11 +1285,11 @@ class BlockBucketizeTest(unittest.TestCase):
                 unbucketize_permute_gpu,
                 bucket_mapping_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 False,
                 True,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 None,
                 return_bucket_mapping=True,
@@ -1279,7 +1297,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
             unbucketize_permute_populated_gpu = (
                 torch.ops.fbgemm.populate_bucketized_permute(
-                    lengths.cuda(),
+                    lengths.to(ACCELERATOR),
                     new_lengths_gpu,
                     bucket_mapping_gpu,
                 )
@@ -1350,7 +1368,7 @@ class BlockBucketizeTest(unittest.TestCase):
             atol=0,
         )
 
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 _new_indices_gpu,
@@ -1359,11 +1377,11 @@ class BlockBucketizeTest(unittest.TestCase):
                 unbucketize_permute_gpu,
                 bucket_mapping_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 False,
                 True,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 None,
                 return_bucket_mapping=True,
@@ -1371,7 +1389,7 @@ class BlockBucketizeTest(unittest.TestCase):
 
             unbucketize_permute_populated_gpu = (
                 torch.ops.fbgemm.populate_bucketized_permute(
-                    lengths.cuda(),
+                    lengths.to(ACCELERATOR),
                     new_lengths_gpu,
                     bucket_mapping_gpu,
                 )
@@ -1474,7 +1492,7 @@ class BlockBucketizeTest(unittest.TestCase):
             lengths, indices, block_sizes, my_size, index_type
         )
 
-    @unittest.skipIf(not gpu_available, "No GPU available")
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
     )
@@ -1548,17 +1566,17 @@ class BlockBucketizeTest(unittest.TestCase):
                 _,
                 bucket_mapping_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 False,
                 True,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
                 None,
                 return_bucket_mapping=True,
             )
             permute_gpu = torch.ops.fbgemm.populate_bucketized_permute(
-                lengths.cuda(),
+                lengths.to(ACCELERATOR),
                 new_lengths_gpu,
                 bucket_mapping_gpu,
             )
@@ -1644,7 +1662,7 @@ class BlockBucketizeTest(unittest.TestCase):
         torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
         torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
 
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -1652,14 +1670,14 @@ class BlockBucketizeTest(unittest.TestCase):
                 new_pos_gpu,
                 unbucketize_permute_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 bucketize_pos,
                 sequence,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
-                weights.cuda() if weights is not None else None,
-                batch_sizes.cuda(),
+                weights.to(ACCELERATOR) if weights is not None else None,
+                batch_sizes.to(ACCELERATOR),
                 max_B,
             )
 
@@ -1785,7 +1803,7 @@ class BlockBucketizeTest(unittest.TestCase):
         if has_weight:
             torch.testing.assert_close(new_weights_cpu, new_weights_ref)
 
-        if gpu_available:
+        if accelerator_available:
             block_bucketize_pos = [
                 torch.tensor(
                     [0, 2, 8],
@@ -1810,14 +1828,14 @@ class BlockBucketizeTest(unittest.TestCase):
                 new_pos_gpu,
                 unbucketize_permute,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 bucketize_pos,
                 sequence,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
-                weights.cuda() if weights is not None else None,
-                batch_sizes.cuda(),
+                weights.to(ACCELERATOR) if weights is not None else None,
+                batch_sizes.to(ACCELERATOR),
                 max_B,
                 block_bucketize_pos,
             )
@@ -1842,7 +1860,7 @@ class BlockBucketizeTest(unittest.TestCase):
                         is_int=False,
                     )
 
-    @unittest.skipIf(not gpu_available, "Skip is GPU is not available.")
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -1916,14 +1934,14 @@ class BlockBucketizeTest(unittest.TestCase):
             new_pos_gpu,
             unbucketize_permute_gpu,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda(),
-            indices.cuda(),
+            lengths.to(ACCELERATOR),
+            indices.to(ACCELERATOR),
             bucketize_pos,
             sequence,
-            block_sizes.cuda(),
+            block_sizes.to(ACCELERATOR),
             my_size,
             # pyre-fixme[16]: `Optional` has no attribute `cuda`.
-            weights.cuda() if has_weight else None,
+            weights.to(ACCELERATOR) if has_weight else None,
         )
 
         if sequence:
@@ -2071,7 +2089,7 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(unbucketized_indices, indices, rtol=0, atol=0)
 
         # Test GPU implementation only if GPU is available
-        if gpu_available:
+        if accelerator_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -2079,13 +2097,13 @@ class BlockBucketizeTest(unittest.TestCase):
                 new_pos_gpu,
                 unbucketize_permute_gpu,
             ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-                lengths.cuda(),
-                indices.cuda(),
+                lengths.to(ACCELERATOR),
+                indices.to(ACCELERATOR),
                 bucketize_pos,
                 sequence,
-                block_sizes.cuda(),
+                block_sizes.to(ACCELERATOR),
                 my_size,
-                weights.cuda(),
+                weights.to(ACCELERATOR),
             )
 
             torch.testing.assert_close(
@@ -2159,8 +2177,8 @@ class BlockBucketizeTest(unittest.TestCase):
                 total_num_blocks=torch.tensor([7, 6, 6], dtype=torch.int),
             )
 
-    @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @unittest.skipIf(*accelerator_unavailable)
+    @unittest.skipIf(*accelerator_memory_lt_gb(4))
     @optests.dontGenerateOpCheckTests(
         "large-grid GPU-memory-gated stress repro; opcheck variants only skip on "
         "CPU samples and add no op coverage (T191384137)"
@@ -2229,8 +2247,21 @@ class BlockBucketizeTest(unittest.TestCase):
         self.assertEqual(new_lengths.shape, (my_size * total_B,))
         self.assertEqual(new_indices.shape, (indices.numel(),))
         self.assertIsNone(new_weights)
-        # Per-bucket lengths sum to total input length.
-        self.assertEqual(int(new_lengths.sum().item()), int(lengths.sum().item()))
+        # Feature 2 is beyond the first capped launch range. Exact values,
+        # rather than only their sum, prove that the grid-stride loop reached
+        # it and populated length_to_feature_idx[1] with feature 2.
+        torch.testing.assert_close(
+            new_lengths.cpu(),
+            torch.tensor([2, 1, 0, 0], dtype=torch.int32),
+            rtol=0,
+            atol=0,
+        )
+        torch.testing.assert_close(
+            new_indices.cpu(),
+            torch.tensor([3, 7, 11], dtype=torch.int32),
+            rtol=0,
+            atol=0,
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     # bucketized_lengths is int32[lengths_size * my_size] (~2.1 GiB at
@@ -2297,6 +2328,27 @@ class BlockBucketizeTest(unittest.TestCase):
 
 
 extend_test_class(BlockBucketizeTest)
+
+
+@unittest.skipIf(
+    ACCELERATOR is None or ACCELERATOR.type != "xpu",
+    "the chunked block bucketize kernel exists only in fbgemm_xpu",
+)
+class BlockBucketizeChunkedKernelTest(BlockBucketizeTest):
+    """Every BlockBucketizeTest case with fbgemm_xpu's chunked kernel forced.
+
+    The automatic choice takes the chunked kernel only for a few long rows,
+    which none of these tests builds.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        environment = mock.patch.dict(
+            os.environ, {"FBGEMM_XPU_BLOCK_BUCKETIZE_KERNEL": "chunked"}
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+
 
 if __name__ == "__main__":
     unittest.main()

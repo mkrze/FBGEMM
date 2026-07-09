@@ -66,6 +66,21 @@ gpu_unavailable: tuple[bool, str] = (
 # Used for `if` statements inside tests
 gpu_available: bool = not gpu_unavailable[0]
 
+# Generic PyTorch accelerator (CUDA/XPU/...) probes, used for tests that only
+# need "some" accelerator rather than a hardcoded backend.
+accelerator_unavailable: tuple[bool, str] = (
+    not torch.accelerator.is_available() or torch.accelerator.device_count() == 0,
+    "No PyTorch accelerator (CUDA/XPU/...) is available",
+)
+# Used for `if` statements inside tests
+accelerator_available: bool = not accelerator_unavailable[0]
+
+
+def current_accelerator() -> torch.device | None:
+    """Return the currently active PyTorch accelerator device, or None."""
+    return torch.accelerator.current_accelerator() if accelerator_available else None
+
+
 is_nvidia_device: bool = gpu_available and torch.version.cuda is not None
 
 # Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
@@ -138,17 +153,17 @@ def symint_vector_unsupported() -> tuple[bool, str]:
 
 
 def cpu_and_maybe_gpu() -> st.SearchStrategy[list[torch.device]]:
-    gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
     # st.sampled_from is not guaranteed to test all the values passed to it.
     # However, Hypothesis, by default, generates 100 test cases from the specified strategies.
     # If st.sampled_from contains >100 items or if it's used in conjunction with other strategies
     # then it may not test all values; however, for smaller tests it may work fine.
     # This is still a stopgap solution until we figure out a way to parameterize UnitTestCase.
-    # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
-    # CUDA specifically required: GPU device strategy for FBGEMM tests
-    gpu_devices = [torch.device("cuda")] if gpu_available else []
+    accelerator_device = current_accelerator()
+    accelerator_devices = (
+        [accelerator_device] if accelerator_device is not None else []
+    )
     # pyrefly: ignore [bad-return]
-    return st.sampled_from([torch.device("cpu")] + gpu_devices)
+    return st.sampled_from([torch.device("cpu")] + accelerator_devices)
 
 
 class optests:
@@ -284,6 +299,33 @@ def gpu_memory_lt_gb(x: int) -> tuple[bool, str]:
         torch.cuda.is_available()
         and (torch.cuda.get_device_properties(0).total_memory / (1024**3)) < x,
         f"GPU memory < {x}GB",
+    )
+
+
+def accelerator_memory_lt_gb(x: int) -> tuple[bool, str]:
+    """Accelerator-aware counterpart of ``gpu_memory_lt_gb``.
+
+    ``gpu_memory_lt_gb`` reads ``torch.cuda`` unconditionally, so on a
+    non-CUDA accelerator it short-circuits to ``False`` -- reporting "memory
+    is sufficient" for every device rather than actually checking one. Tests
+    that allocate large buffers on the current accelerator need a probe that
+    follows ``torch.accelerator`` instead.
+
+    Returns ``(False, ...)`` when no accelerator is present; the accompanying
+    ``accelerator_unavailable`` guard is what skips those runs.
+    """
+    assert x > 0, "GB value must be positive"
+    device = current_accelerator()
+    if device is None:
+        return (False, f"Accelerator memory < {x}GB")
+    module = getattr(torch, device.type, None)
+    get_device_properties = getattr(module, "get_device_properties", None)
+    if get_device_properties is None:
+        return (False, f"Accelerator memory < {x}GB")
+    total_memory = get_device_properties(device.index or 0).total_memory
+    return (
+        (total_memory / (1024**3)) < x,
+        f"Accelerator memory < {x}GB",
     )
 
 

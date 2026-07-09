@@ -21,14 +21,22 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import accelerator_unavailable, current_accelerator, gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        accelerator_unavailable,
+        current_accelerator,
+        gpu_unavailable,
+    )
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
 typed_gpu_unavailable: tuple[bool, str] = gpu_unavailable
+typed_accelerator_unavailable: tuple[bool, str] = accelerator_unavailable
 
 
 def make_pitched_tensor(
@@ -53,11 +61,11 @@ def make_pitched_tensor(
 
 
 # @unittest.skipIf(open_source, "Not supported in open source yet")
-@unittest.skipIf(*typed_gpu_unavailable)
 class MergePooledEmbeddingsTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
+    @unittest.skipIf(*typed_gpu_unavailable)
     @given(
         num_ads=st.integers(min_value=1, max_value=10),
         embedding_dimension=st.integers(min_value=1, max_value=32),
@@ -126,9 +134,10 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(output_ref, output_cpu)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    @unittest.skipIf(*typed_accelerator_unavailable)
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
-        num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
+        num_gpus=st.integers(min_value=1, max_value=torch.accelerator.device_count()),
         r=st.randoms(use_true_random=False),
         use_pitched=st.booleans(),
     )
@@ -142,8 +151,9 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         r,
         use_pitched: bool,
     ) -> None:
-        dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
-        with torch.cuda.device(dst_device):
+        device_type = current_accelerator().type
+        dst_device = torch.device(device_type, r.randint(0, num_gpus - 1))
+        with torch.accelerator.device_index(dst_device.index):
             if use_pitched:
                 inputs = [
                     make_pitched_tensor(10, 20, torch.float32, "cpu", alignment=256)
@@ -153,13 +163,15 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
 
             cuda_inputs = [
-                input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
+                input.to(torch.device(device_type, i % num_gpus))
+                for i, input in enumerate(inputs)
             ]
             cuda_outputs = torch.ops.fbgemm.all_to_one_device(cuda_inputs, dst_device)
             for i, o in zip(inputs, cuda_outputs):
                 self.assertEqual(o.device, dst_device)
                 torch.testing.assert_close(o.cpu(), i)
 
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_merge_pooled_embeddings_gpu_to_cpu(self) -> None:
         dst_device = torch.device("cpu")
         inputs = [torch.randn(10, 20) for _ in range(4)]
@@ -174,6 +186,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(output, ref_output)
 
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    @unittest.skipIf(*typed_gpu_unavailable)
     @given(
         num_inputs=st.integers(min_value=1, max_value=8),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
@@ -213,6 +226,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
             )
         torch.testing.assert_close(output, ref_output)
 
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_merge_pooled_embeddings_cpu_with_different_target_device(self) -> None:
         uncat_size = 2
         pooled_embeddings = [torch.ones(uncat_size, 4), torch.ones(uncat_size, 8)]
@@ -228,6 +242,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
+    @unittest.skipIf(*typed_gpu_unavailable)
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
@@ -256,6 +271,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 cuda_output.cpu(), torch.stack(inputs).sum(dim=0)
             )
 
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_merge_pooled_embeddings_meta(self) -> None:
         """
         Test that merge_pooled_embeddings works with meta tensor and
@@ -286,6 +302,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
 
         assert output_meta.shape == output_cpu.shape
 
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_merge_pooled_embeddings_empty_input_tensors(self) -> None:
         uncat_size = 2
         pooled_embeddings = [

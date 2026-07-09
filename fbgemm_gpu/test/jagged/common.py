@@ -14,6 +14,7 @@ from typing import Any
 
 import fbgemm_gpu
 import fbgemm_gpu.sparse_ops
+import fbgemm_xpu  # noqa: F401  -- registers the XPU operator implementations
 import numpy as np
 import numpy.typing as npt
 import torch
