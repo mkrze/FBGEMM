@@ -19,12 +19,17 @@ from .common import additional_decorators, generate_jagged_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
+    from test_utils import (
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
+        cpu_and_maybe_gpu,
+        optests,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
+        accelerator_memory_lt_gb,
+        accelerator_unavailable,
         cpu_and_maybe_gpu,
-        gpu_memory_lt_gb,
-        gpu_unavailable,
         optests,
     )
 
@@ -107,7 +112,7 @@ class DenseToJaggedTest(unittest.TestCase):
             precompute_total_L,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.integers(0, 6000),
@@ -137,7 +142,7 @@ class DenseToJaggedTest(unittest.TestCase):
 
     # (8000+1) * 8 (size of the element of LongTensor/int64_t offsets)
     # = ~62.5KB > 48KB default shared memory on V100/A100.
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.just(8000),
@@ -188,8 +193,8 @@ class DenseToJaggedTest(unittest.TestCase):
             torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L=-1)
 
     @optests.dontGenerateOpCheckTests("regression test, not an op-shape check")
-    @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*gpu_memory_lt_gb(16))
+    @unittest.skipIf(*accelerator_unavailable)
+    @unittest.skipIf(*accelerator_memory_lt_gb(16))
     def test_dense_to_jagged_backward_int32_overflow(self) -> None:
         """Regression: int32 overflow in dense_to_jagged backward at
         B * max_L * D > INT_MAX, even when B * max_L itself fits in int32.

@@ -19,9 +19,18 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import optests, use_cpu_strategy
+    from test_utils import accelerator_available, current_accelerator, optests
 else:
-    from fbgemm_gpu.test.test_utils import optests, use_cpu_strategy
+    from fbgemm_gpu.test.test_utils import (
+        accelerator_available,
+        current_accelerator,
+        optests,
+    )
+
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
+ACCELERATOR = current_accelerator()
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -62,7 +71,9 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
                 torch.long,
             ]  # Disable torch.bfloat16 due to large error bound
         ),
-        use_cpu=use_cpu_strategy(),
+        # `use_cpu_strategy()` only checks CUDA, which would force CPU-only
+        # runs on XPU.
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
         check_non_contiguous=st.booleans(),
         known_shape=st.booleans(),
     )
@@ -79,7 +90,7 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
         check_non_contiguous: bool,
         known_shape: bool,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device("cpu") if use_cpu else ACCELERATOR
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
@@ -142,6 +153,11 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
         if not is_float:
             return
 
+        # Backward and opcheck are not supported on XPU yet: only the forward
+        # kernel of jagged_index_select_2d has an XPU implementation.
+        if device.type == "xpu":
+            return
+
         grad = torch.rand_like(output)
         grad_ref = grad.detach().clone()
 
@@ -193,7 +209,7 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
                 torch.long,
             ]  # Disable torch.bfloat16 due to large error bound
         ),
-        use_cpu=use_cpu_strategy(),
+        use_cpu=st.booleans() if accelerator_available else st.just(True),
     )
     @settings(max_examples=20, deadline=None)
     def test_jagged_index_select_2d_in_inference(
@@ -206,7 +222,7 @@ class JaggedIndexSelect2DTest(unittest.TestCase):
         jagged_tensor_dtype: torch.dtype,
         use_cpu: bool,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device("cpu") if use_cpu else ACCELERATOR
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,

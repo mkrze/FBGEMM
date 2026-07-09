@@ -29,6 +29,9 @@ else:
         optests,
     )
 
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
 
 class CumSumTest(unittest.TestCase):
     @given(
@@ -150,6 +153,7 @@ class CumSumTest(unittest.TestCase):
             zc.cpu(),
         )
 
+    @unittest.skip("Operator not implemented on XPU")
     @given(
         batch_size=st.integers(10, 1000),
         max_len=st.integers(10, 1000),

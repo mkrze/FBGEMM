@@ -12,6 +12,7 @@ from itertools import accumulate
 
 import hypothesis.strategies as st
 import torch
+import fbgemm_xpu  # noqa: F401  -- registers fbgemm XPU operator impls
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
 )
@@ -22,9 +23,13 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import accelerator_unavailable, current_accelerator, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        accelerator_unavailable,
+        current_accelerator,
+        gpu_unavailable,
+    )
 
 
 class GenerateVBEMetadataTest(unittest.TestCase):
@@ -178,6 +183,20 @@ class GenerateVBEMetadataTest(unittest.TestCase):
             assert out_b_t_map.dtype == torch.int32
             assert torch.equal(out_row_output_offsets.cpu(), row_output_offsets_ref)
             assert torch.equal(out_b_t_map.cpu().view(torch.uint32), b_t_map_ref)
+
+    @unittest.skipIf(*accelerator_unavailable)
+    def test_get_infos_metadata(self) -> None:
+        # get_infos_metadata is device-agnostic integer bit-math; the tensor
+        # argument is unused and only anchors dispatch. Verify the accelerator
+        # key (XPU/CUDA) returns identical (info_B_num_bits, info_B_mask) as the
+        # CPU impl.
+        device = current_accelerator()
+        for B, T in [(1, 1), (32, 20), (128, 64), (100, 100)]:
+            acc_res = torch.ops.fbgemm.get_infos_metadata(
+                torch.empty(0, device=device), B, T
+            )
+            cpu_res = torch.ops.fbgemm.get_infos_metadata(torch.empty(0), B, T)
+            self.assertEqual(tuple(acc_res), tuple(cpu_res))
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
