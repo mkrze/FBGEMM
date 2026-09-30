@@ -1106,8 +1106,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if self.timestep_prefetch_size.get() <= 0:
                 self.prefetch(indices, offsets)
             self.timestep_prefetch_size.decrement()
-
-        lxu_cache_locations = self.lxu_cache_locations_list.pop()
+            lxu_cache_locations = self.lxu_cache_locations_list.pop()
+        else:
+            lxu_cache_locations = torch.empty(
+                0, device=indices.device, dtype=torch.int32
+            )
 
         # Second bound check: check if the indices/offsets are within the boundary
         # of the pruned embedding rows after pruning.

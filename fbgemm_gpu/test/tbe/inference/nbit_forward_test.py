@@ -13,6 +13,7 @@ import random
 import unittest
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -147,6 +148,87 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
         unittest.skip("Operator not implemented for fake tensors"),
     ],
 }
+
+
+class UncachedNBitCompileTest(unittest.TestCase):
+    def test_cached_forward_keeps_prefetch_and_queue(self) -> None:
+        module = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("table", 5, 16, SparseType.INT4, EmbeddingLocation.HOST)],
+            device=torch.device("cpu"),
+            weight_lists=[quantize_embs(torch.ones(5, 16), SparseType.INT4)],
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=SparseType.FP32,
+            bounds_check_mode=BoundsCheckMode.WARNING,
+        ).eval()
+        module.bounds_check_version = 1
+        module.lxu_cache_weights = torch.zeros((1, 16), dtype=torch.uint8)
+        indices, offsets = torch.tensor([0, 4]), torch.tensor([0, 2])
+        locations = torch.tensor([0, -1], dtype=torch.int32)
+
+        def prefetch(current_indices: torch.Tensor, current_offsets: torch.Tensor) -> None:
+            module.timestep_prefetch_size.increment()
+            module.lxu_cache_locations_list.push(locations)
+
+        for already_prefetched in (False, True):
+            with self.subTest(already_prefetched=already_prefetched):
+                if already_prefetched:
+                    prefetch(indices, offsets)
+                with patch.object(module, "prefetch", side_effect=prefetch) as prefetch_call:
+                    with patch(
+                        "torch.ops.fbgemm.int_nbit_split_embedding_codegen_lookup_function",
+                        return_value=torch.zeros(2, 16),
+                    ) as lookup_call:
+                        module(indices, offsets)
+                self.assertEqual(prefetch_call.call_count, 0 if already_prefetched else 1)
+                torch.testing.assert_close(lookup_call.call_args.kwargs["lxu_cache_locations"], locations)
+                self.assertEqual(module.timestep_prefetch_size.get(), 0)
+                self.assertEqual(module.lxu_cache_locations_list.size(), 0)
+
+    def test_no_bag_compile_preserves_bounds(self) -> None:
+        for weight_type in (SparseType.INT4, SparseType.INT8):
+            with self.subTest(weight_type=weight_type):
+                weights = [
+                    quantize_embs(
+                        torch.sin(torch.arange(rows * 16).float()).reshape(rows, 16),
+                        weight_type,
+                    )
+                    for rows in (5, 7)
+                ]
+                module = IntNBitTableBatchedEmbeddingBagsCodegen(
+                    embedding_specs=[
+                        (f"table_{table}", rows, 16, weight_type, EmbeddingLocation.HOST)
+                        for table, rows in enumerate((5, 7))
+                    ],
+                    device=torch.device("cpu"),
+                    weight_lists=weights,
+                    pooling_mode=PoolingMode.NONE,
+                    output_dtype=SparseType.FP32,
+                    bounds_check_mode=BoundsCheckMode.WARNING,
+                    row_alignment=16,
+                ).eval()
+                module.bounds_check_version = 1
+                compiled = torch.compile(module, backend="inductor", fullgraph=True)
+                for values, boundaries in (
+                    ([0, 4, 6], [0, 2, 3]),
+                    ([-2, 5, 7], [0, 2, 3]),
+                    ([], [0, 0, 0]),
+                ):
+                    with self.subTest(values=values), torch.no_grad():
+                        indices = torch.tensor(values, dtype=torch.int64)
+                        offsets = torch.tensor(boundaries, dtype=torch.int64)
+                        expected_indices, expected_offsets = indices.clone(), offsets.clone()
+                        module.bounds_check_warning.zero_()
+                        expected = module(expected_indices, expected_offsets)
+                        expected_warning = module.bounds_check_warning.clone()
+                        module.bounds_check_warning.zero_()
+                        actual = compiled(indices, offsets)
+                        torch.testing.assert_close(actual, expected)
+                        torch.testing.assert_close(indices, expected_indices)
+                        torch.testing.assert_close(offsets, expected_offsets)
+                        torch.testing.assert_close(module.bounds_check_warning, expected_warning)
+                module.bounds_check_mode_int = BoundsCheckMode.FATAL.value
+                with torch.no_grad(), self.assertRaises(RuntimeError):
+                    compiled(torch.tensor([-2, 4, 6]), torch.tensor([0, 2, 3]))
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
