@@ -24,10 +24,15 @@ from .common import (
     permute_scripted,
 )
 
+# Registers the XPU (Intel GPU) FBGEMM operator implementations.
+import fbgemm_xpu  # noqa: F401, E402
+
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
-        gpu_available,
+        accelerator_available,
+        accelerator_unavailable,
+        current_accelerator,
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
@@ -36,7 +41,9 @@ if open_source:
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
-        gpu_available,
+        accelerator_available,
+        accelerator_unavailable,
+        current_accelerator,
         gpu_memory_lt_gb,
         gpu_unavailable,
         on_oss_clang,
@@ -137,9 +144,9 @@ class PermuteIndicesTest(unittest.TestCase):
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
-        if gpu_available:
+        if accelerator_available:
             weights_cuda = (
-                weights.cuda() if (has_weight and weights is not None) else None
+                weights.to(current_accelerator()) if (has_weight and weights is not None) else None
             )
             if is_1D:
                 (
@@ -147,9 +154,9 @@ class PermuteIndicesTest(unittest.TestCase):
                     permuted_indices_gpu,
                     permuted_weights_gpu,
                 ) = torch.ops.fbgemm.permute_1D_sparse_data(
-                    permute.cuda(),
-                    lengths.cuda(),
-                    indices.cuda(),
+                    permute.to(current_accelerator()),
+                    lengths.to(current_accelerator()),
+                    indices.to(current_accelerator()),
                     weights_cuda,
                     None,
                 )
@@ -159,9 +166,9 @@ class PermuteIndicesTest(unittest.TestCase):
                     permuted_indices_gpu,
                     permuted_weights_gpu,
                 ) = torch.ops.fbgemm.permute_2D_sparse_data(
-                    permute.cuda(),
-                    lengths.cuda(),
-                    indices.cuda(),
+                    permute.to(current_accelerator()),
+                    lengths.to(current_accelerator()),
+                    indices.to(current_accelerator()),
                     weights_cuda,
                     None,
                 )
@@ -181,7 +188,7 @@ class PermuteIndicesTest(unittest.TestCase):
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -223,9 +230,9 @@ class PermuteIndicesTest(unittest.TestCase):
             # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
         ) = permute_indices_ref_(lengths, indices, None, permute.long())
 
-        permute_gpu = create_non_contiguous(permute.cuda())
-        lengths_gpu = create_non_contiguous(lengths.cuda())
-        indices_gpu = create_non_contiguous(indices.cuda())
+        permute_gpu = create_non_contiguous(permute.to(current_accelerator()))
+        lengths_gpu = create_non_contiguous(lengths.to(current_accelerator()))
+        indices_gpu = create_non_contiguous(indices.to(current_accelerator()))
         self.assertFalse(permute_gpu.is_contiguous())
         self.assertFalse(lengths_gpu.is_contiguous())
         self.assertFalse(indices_gpu.is_contiguous())
@@ -248,7 +255,7 @@ class PermuteIndicesTest(unittest.TestCase):
     # TorchScript has different behaviors than eager mode. We can see undefined
     # models returned. So we need to add a unittest to ensure the op return
     # real None, not an undefined tensor.
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -337,18 +344,18 @@ class PermuteIndicesTest(unittest.TestCase):
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
-        if gpu_available:
+        if accelerator_available:
             weights_cuda = (
-                weights.cuda() if (has_weight and weights is not None) else None
+                weights.to(current_accelerator()) if (has_weight and weights is not None) else None
             )
             (
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
             ) = torch.ops.fbgemm.permute_2D_sparse_data(
-                permute.cuda(),
-                lengths.cuda(),
-                indices.cuda(),
+                permute.to(current_accelerator()),
+                lengths.to(current_accelerator()),
+                indices.to(current_accelerator()),
                 weights_cuda,
             )
             torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
@@ -367,7 +374,7 @@ class PermuteIndicesTest(unittest.TestCase):
         has_weight=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=100, deadline=None)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -431,10 +438,10 @@ class PermuteIndicesTest(unittest.TestCase):
             permuted_indices_gpu,
             permuted_weights_gpu,
         ) = torch.ops.fbgemm.permute_1D_sparse_data(
-            permute.cuda(),
-            lengths.cuda(),
-            indices.cuda(),
-            weights.cuda() if has_weight and weights is not None else None,
+            permute.to(current_accelerator()),
+            lengths.to(current_accelerator()),
+            indices.to(current_accelerator()),
+            weights.to(current_accelerator()) if has_weight and weights is not None else None,
             None,
         )
 
@@ -482,7 +489,7 @@ class PermuteIndicesTest(unittest.TestCase):
             )
 
             weights_edge_cuda = (
-                weights_edge.cuda()
+                weights_edge.to(current_accelerator())
                 if (has_weight and weights_edge is not None)
                 else None
             )
@@ -491,9 +498,9 @@ class PermuteIndicesTest(unittest.TestCase):
                 permuted_indices_gpu_edge,
                 permuted_weights_gpu_edge,
             ) = torch.ops.fbgemm.permute_1D_sparse_data(
-                permute_edge.cuda(),
-                lengths_edge.cuda(),
-                indices_edge.cuda(),
+                permute_edge.to(current_accelerator()),
+                lengths_edge.to(current_accelerator()),
+                indices_edge.to(current_accelerator()),
                 weights_edge_cuda,
                 None,
             )
@@ -519,7 +526,7 @@ class PermuteIndicesTest(unittest.TestCase):
         weights_columns=st.sampled_from([2, 3, 4, 7, 8]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=50, deadline=None)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -603,10 +610,10 @@ class PermuteIndicesTest(unittest.TestCase):
             permuted_indices_gpu,
             permuted_weights_gpu,
         ) = torch.ops.fbgemm.permute_1D_sparse_data(
-            permute.cuda(),
-            lengths.cuda(),
-            indices.cuda(),
-            weights.cuda(),
+            permute.to(current_accelerator()),
+            lengths.to(current_accelerator()),
+            indices.to(current_accelerator()),
+            weights.to(current_accelerator()),
             None,
         )
 
@@ -640,10 +647,10 @@ class PermuteIndicesTest(unittest.TestCase):
                 permuted_indices_gpu_edge,
                 permuted_weights_gpu_edge,
             ) = torch.ops.fbgemm.permute_1D_sparse_data(
-                permute_edge.cuda(),
-                lengths_edge.cuda(),
-                indices_edge.cuda(),
-                weights_edge.cuda(),
+                permute_edge.to(current_accelerator()),
+                lengths_edge.to(current_accelerator()),
+                indices_edge.to(current_accelerator()),
+                weights_edge.to(current_accelerator()),
                 None,
             )
             torch.testing.assert_close(
@@ -661,7 +668,7 @@ class PermuteIndicesTest(unittest.TestCase):
         has_weight=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -715,15 +722,15 @@ class PermuteIndicesTest(unittest.TestCase):
         )
 
         # GPU (uses vectorized kernel)
-        weights_cuda = weights.cuda() if has_weight and weights is not None else None
+        weights_cuda = weights.to(current_accelerator()) if has_weight and weights is not None else None
         (
             permuted_lengths_gpu,
             permuted_indices_gpu,
             permuted_weights_gpu,
         ) = torch.ops.fbgemm.permute_2D_sparse_data(
-            permute.cuda(),
-            lengths.cuda(),
-            indices.cuda(),
+            permute.to(current_accelerator()),
+            lengths.to(current_accelerator()),
+            indices.to(current_accelerator()),
             weights_cuda,
             None,
         )
@@ -740,7 +747,7 @@ class PermuteIndicesTest(unittest.TestCase):
         has_weight=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
     )
@@ -795,15 +802,15 @@ class PermuteIndicesTest(unittest.TestCase):
         )
 
         # GPU (uses vectorized kernel)
-        weights_cuda = weights.cuda() if has_weight and weights is not None else None
+        weights_cuda = weights.to(current_accelerator()) if has_weight and weights is not None else None
         (
             permuted_lengths_gpu,
             permuted_indices_gpu,
             permuted_weights_gpu,
         ) = torch.ops.fbgemm.permute_2D_sparse_data(
-            permute.cuda(),
-            lengths.cuda(),
-            indices.cuda(),
+            permute.to(current_accelerator()),
+            lengths.to(current_accelerator()),
+            indices.to(current_accelerator()),
             weights_cuda,
             None,
         )
@@ -815,6 +822,8 @@ class PermuteIndicesTest(unittest.TestCase):
         else:
             self.assertIsNone(permuted_weights_gpu)
 
+    # CUDA/ROCm only: the XPU kernel does not cap its launch range yet, and
+    # this grid exceeds the int range of a SYCL launch.
     @unittest.skipIf(*gpu_unavailable)
     # Skip on GPUs with insufficient HBM (need a few hundred MB for the
     # int32 N-element tensors).
@@ -892,6 +901,8 @@ class PermuteIndicesTest(unittest.TestCase):
         torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
         self.assertIsNone(permuted_weights_gpu)
 
+    # CUDA/ROCm only: the XPU kernel does not cap its launch range yet, and
+    # this grid exceeds the int range of a SYCL launch.
     @unittest.skipIf(*gpu_unavailable)
     # Skip on GPUs with insufficient HBM (need ~512 MB for the int32
     # lengths tensor at the chosen B).
@@ -1143,9 +1154,9 @@ class PermuteIndicesTest(unittest.TestCase):
             )
 
         # GPU test
-        if gpu_available:
+        if accelerator_available:
             weights_cuda = (
-                weights.cuda() if (has_weight and weights is not None) else None
+                weights.to(current_accelerator()) if (has_weight and weights is not None) else None
             )
             permuted_lengths_out_gpu = torch.empty(
                 T, B, dtype=index_dtype, device=torch.accelerator.current_accelerator()
@@ -1168,9 +1179,9 @@ class PermuteIndicesTest(unittest.TestCase):
                 permuted_indices_gpu,
                 permuted_weights_gpu,
             ) = torch.ops.fbgemm.permute_2D_sparse_preallocated_out(
-                permute.cuda(),
-                lengths.cuda(),
-                indices.cuda(),
+                permute.to(current_accelerator()),
+                lengths.to(current_accelerator()),
+                indices.to(current_accelerator()),
                 weights_cuda,
                 None,
                 permuted_lengths_out_gpu,
@@ -1278,8 +1289,8 @@ class PermuteIndicesTest(unittest.TestCase):
             torch.testing.assert_close(weights.grad.cpu(), expected_grad)
 
         check("cpu")
-        if gpu_available:
-            check("cuda")
+        if accelerator_available:
+            check(str(current_accelerator()))
 
 
 extend_test_class(PermuteIndicesTest)
