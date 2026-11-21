@@ -95,7 +95,7 @@ class BlockBucketizeTest(unittest.TestCase):
                     self.assertAlmostEqual(left, right)
         return
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*accelerator_unavailable)
     def test_block_bucketize_long_sequence_warp_matches_cpu(self) -> None:
         """Exercise the long-sequence warp path and require stable CPU parity."""
         lengths = torch.tensor([257, 513, 0, 300], dtype=torch.long)
@@ -117,10 +117,10 @@ class BlockBucketizeTest(unittest.TestCase):
         )
         actual = torch.ops.fbgemm.block_bucketize_sparse_features(
             *(
-                tensor.cuda() if isinstance(tensor, torch.Tensor) else tensor
+                tensor.to(ACCELERATOR) if isinstance(tensor, torch.Tensor) else tensor
                 for tensor in args
             ),
-            total_num_blocks=total_num_blocks.cuda(),
+            total_num_blocks=total_num_blocks.to(ACCELERATOR),
         )
         for expected_tensor, actual_tensor in zip(expected, actual):
             if expected_tensor is None:
@@ -2373,8 +2373,8 @@ extend_test_class(BlockBucketizeTest)
 class BlockBucketizeChunkedKernelTest(BlockBucketizeTest):
     """Every BlockBucketizeTest case with fbgemm_xpu's chunked kernel forced.
 
-    The automatic choice takes the chunked kernel only for a few long rows,
-    which none of these tests builds.
+    The automatic choice takes the chunked kernel only for a few long rows;
+    only test_block_bucketize_long_sequence_warp_matches_cpu builds them.
     """
 
     def setUp(self) -> None:
